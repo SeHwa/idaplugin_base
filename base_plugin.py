@@ -27,6 +27,34 @@ if BIT == 64:
     DUMMY_IMPORT += 0xFF00000000
     STACK += 0xFF00000000
 
+
+def hexdump(address, data):
+    word = 8
+    if address + len(data) > 0x100000000:
+        word = 16
+
+    result = ""
+    size = len(data)
+    line = int(size / 0x10) + 1 - int(not (size % 0x10))
+    for i in range(line):
+        fmt = "%0" + str(word) + "X  "
+        result += fmt % (address + (i * 0x10))
+        col_len = (size - (i * 0x10))
+        for j in range(min(col_len, 0x10)):
+            if j == 8: result += " "
+            result += "%02X " % data[i * 0x10 + j]
+        if col_len < 0x10:
+            result += "   " * (0x10 - col_len)
+        result += " |"
+        for j in range(min(col_len, 0x10)):
+            b = data[i * 0x10 + j]
+            s = chr(b) if 32 <= b < 127 else "."
+            result += s
+        if col_len < 0x10:
+            result += " " * (0x10 - col_len)
+        result += "|\n"
+    return result
+
 def pack(address):
     ps = ""
     if idaapi.get_inf_structure().is_be() == True:
@@ -143,6 +171,13 @@ class Emulator():
                 self.uc.reg_write(UC_X86_REG_EBP, STACK + 0x80000);
                 self.uc.reg_write(UC_X86_REG_ESP, STACK + 0x40000);
 
+    def read(self, address, size):
+        return self.uc.mem_read(address, size)
+
+    def write(self, address, data):
+        self.uc.mem_write(address, data)
+        return
+
     def run(self, ctx):
         self.reg_init()
 
@@ -161,17 +196,75 @@ class Emulator():
             print("Unicorn Error: %s" % e)
 
 
-class PluginHandler(idaapi.action_handler_t):
+
+emu = Emulator()
+
+class EmulateHandler(idaapi.action_handler_t):
     def __init__(self):
         idaapi.action_handler_t.__init__(self)
 
     def activate(self, ctx):
+        global emu
+
         if ctx.cur_func == None:
             idaapi.warning("not function!")
             return 1
 
-        emu = Emulator()
         emu.run(ctx)
+        print("End emulation.")
+        return 1
+
+    def update(self, ctx):
+        return idaapi.AST_ENABLE_ALWAYS
+
+class PrintHandler(idaapi.action_handler_t):
+    def __init__(self):
+        idaapi.action_handler_t.__init__(self)
+
+    def activate(self, ctx):
+        global emu
+
+        if ctx.cur_value == 0xffffffffffffffff:
+            print("Not address symbol!")
+            return 1
+
+        size = idaapi.ask_long(0x1000, "How many bytes do you want to print?")
+        address = ctx.cur_value
+        data = emu.read(address, size)
+        print(hexdump(address, data))
+        return 1
+
+    def update(self, ctx):
+        return idaapi.AST_ENABLE_ALWAYS
+
+class ApplyHandler(idaapi.action_handler_t):
+    def __init__(self):
+        idaapi.action_handler_t.__init__(self)
+
+    def activate(self, ctx):
+        if ctx.cur_value == 0xffffffffffffffff:
+            print("Not address symbol!")
+            return 1
+
+        size = idaapi.ask_long(0x1000, "How many bytes do you want to patch?")
+        address = ctx.cur_value
+        data = emu.read(address, size)
+        ida_bytes.patch_bytes(address, bytes(data))
+        print("Patching to memory after emulation succeeded!")
+        return 1
+
+    def update(self, ctx):
+        return idaapi.AST_ENABLE_ALWAYS
+
+class ResetHandler(idaapi.action_handler_t):
+    def __init__(self):
+        idaapi.action_handler_t.__init__(self)
+
+    def activate(self, ctx):
+        global emu
+
+        print("Emulator reset successful!")
+        emu = Emulator()
         return 1
 
     def update(self, ctx):
@@ -181,23 +274,33 @@ class PopupHook(idaapi.UI_Hooks):
     def __init__(self):
         idaapi.UI_Hooks.__init__(self) 
 
-    def finish_populating_widget_popup(self, form, popup):
+    def finish_populating_widget_popup(self, form, popup, ctx):
         formtype = idaapi.get_widget_type(form)
-        if formtype == idaapi.BWN_DISASM:
+        if formtype == idaapi.BWN_DISASM: # or formtype == idaapi.BWN_PSEUDOCODE:
             idaapi.attach_action_to_popup(form, popup, "act:emulate", None)
+            idaapi.attach_action_to_popup(form, popup, "act:print", None)
+            idaapi.attach_action_to_popup(form, popup, "act:apply", None)
+            idaapi.attach_action_to_popup(form, popup, "act:reset", None)
 
 class PluginEntry(idaapi.plugin_t):
     def init(self):
         self.popupHook = PopupHook()
 
-        action_desc = idaapi.action_desc_t("act:emulate", "Emulate Me •_•", PluginHandler(), None, None, -1)
-        idaapi.register_action(action_desc)
-#        idaapi.attach_action_to_menu("Edit/Plugins/", "act:emulate", idaapi.SETMENU_FIRST)
+        action_emulate_desc = idaapi.action_desc_t("act:emulate", "Emulate Me •_•", EmulateHandler(), None, None, -1)
+        action_print_desc = idaapi.action_desc_t("act:print", "Print Me •_•", PrintHandler(), None, None, -1)
+        action_apply_desc = idaapi.action_desc_t("act:apply", "Apply Me •_•", ApplyHandler(), None, None, -1)
+        action_reset_desc = idaapi.action_desc_t("act:reset", "Reset Me •_•", ResetHandler(), None, None, -1)
+        idaapi.register_action(action_emulate_desc)
+        idaapi.register_action(action_print_desc)
+        idaapi.register_action(action_apply_desc)
+        idaapi.register_action(action_reset_desc)
         return idaapi.PLUGIN_KEEP
 
     def term(self):
         idaapi.unregister_action("act:emulate")
-#        idaapi.detach_action_from_menu("Edit/Plugins/", "act:emulate")
+        idaapi.unregister_action("act:print")
+        idaapi.unregister_action("act:apply")
+        idaapi.unregister_action("act:reset")
 
     def run(self):
         self.popupHook.hook()
