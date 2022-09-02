@@ -249,6 +249,17 @@ class EmulateHereHandler(idaapi.action_handler_t):
     def update(self, ctx):
         return idaapi.AST_ENABLE_ALWAYS
 
+class ConvertHandler(idaapi.action_handler_t):
+    def __init__(self):
+        idaapi.action_handler_t.__init__(self)
+
+    def activate(self, ctx):
+        ida_bytes.create_strlit(ctx.cur_ea, 0, ida_nalt.STRTYPE_C)
+        return 1
+
+    def update(self, ctx):
+        return idaapi.AST_ENABLE_ALWAYS
+
 class PrintHandler(idaapi.action_handler_t):
     def __init__(self):
         idaapi.action_handler_t.__init__(self)
@@ -334,6 +345,7 @@ class UnloadHandler(idaapi.action_handler_t):
     def activate(self, ctx):
         idaapi.unregister_action("act:emulate_func")
         idaapi.unregister_action("act:emulate_here")
+        idaapi.unregister_action("act:convert")
         idaapi.unregister_action("act:print")
         idaapi.unregister_action("act:apply")
         idaapi.unregister_action("act:reset_emu")
@@ -352,6 +364,7 @@ class PopupHook(idaapi.UI_Hooks):
         if formtype == idaapi.BWN_DISASM: # or formtype == idaapi.BWN_PSEUDOCODE:
             idaapi.attach_action_to_popup(form, popup, "act:emulate_func", PLUGIN_NAME + "/")
             idaapi.attach_action_to_popup(form, popup, "act:emulate_here", PLUGIN_NAME + "/")
+            idaapi.attach_action_to_popup(form, popup, "act:convert", PLUGIN_NAME + "/")
             idaapi.attach_action_to_popup(form, popup, "act:print", PLUGIN_NAME + "/")
             idaapi.attach_action_to_popup(form, popup, "act:apply", PLUGIN_NAME + "/")
             idaapi.attach_action_to_popup(form, popup, "act:reset_emu", PLUGIN_NAME + "/")
@@ -364,6 +377,7 @@ class PluginEntry(idaapi.plugin_t):
 
         action_emulate_func_desc = idaapi.action_desc_t("act:emulate_func", "Emulate Function •_•", EmulateFuncHandler(), "Ctrl+Shift+E", None, -1)
         action_emulate_here_desc = idaapi.action_desc_t("act:emulate_here", "Emulate Here •_•", EmulateHereHandler(), "Ctrl+Shift+H", None, -1)
+        action_convert_desc = idaapi.action_desc_t("act:convert", "Convert Me •_•", ConvertHandler(), None, None, -1)
         action_print_desc = idaapi.action_desc_t("act:print", "Print Me •_•", PrintHandler(), None, None, -1)
         action_apply_desc = idaapi.action_desc_t("act:apply", "Apply Me •_•", ApplyHandler(), "Ctrl+Shift+A", None, -1)
         action_reset_emu_desc = idaapi.action_desc_t("act:reset_emu", "Reset Emulator •_•", ResetEmuHandler(), None, None, -1)
@@ -371,6 +385,7 @@ class PluginEntry(idaapi.plugin_t):
         action_unload_desc = idaapi.action_desc_t("act:unload", "Unload Me •_•", UnloadHandler(), None, None, -1)
         idaapi.register_action(action_emulate_func_desc)
         idaapi.register_action(action_emulate_here_desc)
+        idaapi.register_action(action_convert_desc)
         idaapi.register_action(action_print_desc)
         idaapi.register_action(action_apply_desc)
         idaapi.register_action(action_reset_emu_desc)
@@ -381,6 +396,7 @@ class PluginEntry(idaapi.plugin_t):
     def term(self):
         idaapi.unregister_action("act:emulate_func")
         idaapi.unregister_action("act:emulate_here")
+        idaapi.unregister_action("act:convert")
         idaapi.unregister_action("act:print")
         idaapi.unregister_action("act:apply")
         idaapi.unregister_action("act:reset_emu")
